@@ -226,15 +226,15 @@ sendpkt(char *pkt, int size, unsigned int ackseqn, int all)
   /* Lab5 and PA3 Task 2.1: YOUR CODE HERE */
     socklen_t client_size = sizeof(client);
     fd_set imgdb_sendpkt_set;
-
+    FD_ZERO(&imgdb_sendpkt_set);
+    FD_SET(sd, &imgdb_sendpkt_set);
     int count =0;
+    
     while(count < NETIMG_MAXTRIES){
     //send packet  
     ssize_t judge = sendto(sd, pkt, size, 0, (struct sockaddr *) &client, client_size);
     assert(judge>0&&"failed sent to client");
 
-    FD_ZERO(&imgdb_sendpkt_set);
-    FD_SET(sd, &imgdb_sendpkt_set);
     int err = select(sd+1, &imgdb_sendpkt_set, 0, 0, &timeout);
     bool recived_right_ack_seq = false;
 
@@ -247,20 +247,23 @@ sendpkt(char *pkt, int size, unsigned int ackseqn, int all)
             ihdr_t ihdr_ack;
             socklen_t client_size = sizeof(client);
             int bytes = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), MSG_DONTWAIT, (struct sockaddr *) &client, &client_size);
-            if(bytes<0) break;
+            if(bytes<0) {
+              fprintf(stderr, "bufferenpmty!!!!\n");
+              break;
+            }
             
             unsigned int recived_ih_seq = ntohl(ihdr_ack.ih_seqn);
-            
+            fprintf(stderr, "recived_ih_seq is 0x%x\n", recived_ih_seq);
+            recived_right_ack_seq = (ackseqn==(unsigned int)recived_ih_seq);
+
             if((recived_ih_seq == ackseqn)&&(all==0)){return 0;}
             else if(all==0){
-              return (-1);
+              break;
             }
-            recived_right_ack_seq = (ackseqn==recived_ih_seq);
         }
-
         if((recived_right_ack_seq)&all) {return 0;}
-        else return (-1);
     }
+    count++;
   }
   return (-1);
 }
@@ -315,8 +318,8 @@ sendimg(char *image, long imgsize)
   /* Lab5 Task 1:
    * make sure that the send buffer is of size at least mss.
    */
-  socklen_t len_int = sizeof(int);
-  int err_SO_SNDBUF = setsockopt(sd, SOL_SOCKET, SO_SNDBUF, &mss , len_int);
+  int mss_in = (int) mss;
+  int err_SO_SNDBUF = setsockopt(sd, SOL_SOCKET, SO_SNDBUF, &mss_in , sizeof(int));
   if(err_SO_SNDBUF==-1) perror("setsockopt SO_SNDBUF failed");
 
   /* Lab5 Task 1:
@@ -346,7 +349,7 @@ sendimg(char *image, long imgsize)
    */
   /* PA3: YOUR CODE HERE */
     unsigned int snd_una = 0;
-    unsigned int rwnd_short = rwnd*mss;
+    unsigned int rwnd_short = rwnd*datasize;
     unsigned int useable_window = rwnd_short - (snd_next - snd_una);
     fprintf(stderr, "useable_window%hu mss is%hu\n", useable_window, mss );
 
@@ -366,9 +369,9 @@ sendimg(char *image, long imgsize)
      * drop a segment instead of sending it.  Don't forget to
      * decrement your "usable" window when a packet is so dropped.
      */
-    while (useable_window>mss) {
+    while (useable_window>datasize) {
     /* PA3: YOUR CODE HERE */
-      fprintf(stderr, "start to send image");
+      //fprintf(stderr, "start to send image");
 
       // The last segment may be smaller than datasize 
       left = imgsize - snd_next;
@@ -429,8 +432,8 @@ sendimg(char *image, long imgsize)
 
     int err = select(sd+1, &imgdb_fd_set, 0, 0, &timeout_1);
     if(!err){// start go back n
+      fprintf(stderr, " RTO current unacked is: 0x%x\n", snd_una);
       snd_next = snd_una;
-      break;
     }else{
       if(FD_ISSET(sd, &imgdb_fd_set)){
           ihdr_t ihdr_ack;
@@ -438,12 +441,13 @@ sendimg(char *image, long imgsize)
           while(1){
             int byte_r = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), MSG_DONTWAIT, (struct sockaddr *) &client, &client_size);
             if(byte_r < 0){
-              fprintf(stderr, " server finish recive ack current unacked is: 0x%x\n", snd_una);
+              fprintf(stderr, "break out from recvfrom\n");
               break;
             }
             if(ihdr_ack.ih_type == NETIMG_ACK){
               unsigned int seq_short =  ntohl(ihdr_ack.ih_seqn);
               snd_una = max(snd_una, seq_short);
+              fprintf(stderr, " server finish recive ack 0x%x current unacked is: 0x%x\n", seq_short, snd_una);
             }else{
               fprintf(stderr, "!!! recived type is not net ack");
             }
@@ -451,7 +455,7 @@ sendimg(char *image, long imgsize)
           snd_next = snd_una;
       }
     }
-    fprintf(stderr, "current snd_next is  %d, and imgsize is %li\n", snd_next, imgsize);
+    //fprintf(stderr, "current snd_next is  %d, and imgsize is %li\n", snd_next, imgsize);
 
   } while ((int)snd_next < imgsize); // PA3 Task 2.2: replace the '1' with your condition for detecting 
   // that all segments sent have been acknowledged

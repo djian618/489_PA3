@@ -151,8 +151,7 @@ socks_clntinit(char *sname, u_short port, int rcvbuf)
    * set socket receive buffer size to be at least rcvbuf bytes.
   */
   /* YOUR CODE HERE */
-  socklen_t len_int = sizeof(int);
-  int err_SO_RCVBUF  = setsockopt(sd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, len_int);
+  int err_SO_RCVBUF  = setsockopt(sd, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(int));
 
    if(err_SO_RCVBUF==-1) perror("setsockopt SO_RCVBUF failed");
   // int receive_buffer_sized;
