@@ -254,26 +254,15 @@ sendpkt(char *pkt, int size, unsigned int ackseqn, int all)
               else return (-1);
 
             }else{
-                
-                fd_set imgdb_clear_buffer_set;
-                FD_ZERO(&imgdb_clear_buffer_set);
-                FD_SET(sd, &imgdb_clear_buffer_set);
-
-                int bytes = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), 0, (struct sockaddr *) &client, &client_size);
-                net_assert((bytes<0),"recv error when all ==0");
-                recived_ih_seq = ntohl(ihdr_ack.ih_seqn);
-
                 while(1){
                   fprintf(stderr, "recive ack num is 0x%x\n", recived_ih_seq);
-                  int err_r = select(sd+1, &imgdb_clear_buffer_set, 0, 0, &timeout);
-                  if(!err_r){
-                    fprintf(stderr, "finish waiting ack num is 0%x\n", recived_ih_seq);
-                    if(recived_ih_seq == ackseqn) return 0;
+                  int bytes = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), MSG_DONTWAIT, (struct sockaddr *) &client, &client_size);
+                  if(bytes<0){
+                    fprintf(stderr, " before break recive ack num is 0x%x\n", recived_ih_seq);
+                    if(recived_ih_seq==ackseqn) return 0;
                     else return (-1);
                   }
-                  bytes = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), 0, (struct sockaddr *) &client, &client_size);
                   recived_ih_seq = ntohl(ihdr_ack.ih_seqn);
-
                 }
             }
     }
@@ -462,13 +451,7 @@ sendimg(char *image, long imgsize)
             socklen_t client_size = sizeof(client);
             while(1){
               int byte_r = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), MSG_DONTWAIT, (struct sockaddr *) &client, &client_size);
-              // if(byte_r<0){
-              //   int errs = errno;
-              //     if((errs == EAGAIN)||(errs == EWOULDBLOCK)){
-              //       fprintf(stderr, "break out from recvfrom\n");
-              //       break;
-              //     }
-              // }
+              if(byte_r<0) break;
               if(ihdr_ack.ih_type == NETIMG_ACK){
                 unsigned int seq_short =  ntohl(ihdr_ack.ih_seqn);
                 snd_una = max(snd_una, seq_short);
@@ -490,6 +473,7 @@ sendimg(char *image, long imgsize)
    * and wait for ACK, using imgdb::recvack().
    */ 
   ihdr_t hdr;
+  hdr.ih_vers = NETIMG_VERS;
   hdr.ih_type = NETIMG_FIN;
   hdr.ih_size = 0;
   hdr.ih_seqn = htonl(NETIMG_FINSEQ);
