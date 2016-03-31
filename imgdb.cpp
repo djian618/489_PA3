@@ -50,7 +50,7 @@ using namespace std;
 #include "imgdb.h"
 #include <time.h>
 #include <algorithm>    // std::max
-
+#include <errno.h>
 /*
  * args: parses command line args.
  *
@@ -229,7 +229,8 @@ sendpkt(char *pkt, int size, unsigned int ackseqn, int all)
     FD_ZERO(&imgdb_sendpkt_set);
     FD_SET(sd, &imgdb_sendpkt_set);
     int count =0;
-    
+    ihdr_t ihdr_ack;
+    unsigned int recived_ih_seq;
     while(count < NETIMG_MAXTRIES){
     //send packet  
     ssize_t judge = sendto(sd, pkt, size, 0, (struct sockaddr *) &client, client_size);
@@ -239,31 +240,44 @@ sendpkt(char *pkt, int size, unsigned int ackseqn, int all)
     bool recived_right_ack_seq = false;
 
     if(!err){// timeout
+      
+      if((recived_right_ack_seq)&all) {return 0;}
       count++;
       fprintf(stderr, "time out recive ack,tried %d times\n", count);
       continue;
     }else  if(FD_ISSET(sd, &imgdb_sendpkt_set)){
-        while(1){
-            ihdr_t ihdr_ack;
-            socklen_t client_size = sizeof(client);
-            int bytes = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), MSG_DONTWAIT, (struct sockaddr *) &client, &client_size);
-            if(bytes<0) {
-              fprintf(stderr, "bufferenpmty!!!!\n");
-              break;
-            }
-            
-            unsigned int recived_ih_seq = ntohl(ihdr_ack.ih_seqn);
-            fprintf(stderr, "recived_ih_seq is 0x%x\n", recived_ih_seq);
-            recived_right_ack_seq = (ackseqn==(unsigned int)recived_ih_seq);
+            if(all==0){
+              int bytes = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), 0, (struct sockaddr *) &client, &client_size);
+              net_assert((bytes<0),"recv error when all ==0");
+              recived_ih_seq = ntohl(ihdr_ack.ih_seqn);
+              if(recived_ih_seq == ackseqn) return 0;
+              else return (-1);
 
-            if((recived_ih_seq == ackseqn)&&(all==0)){return 0;}
-            else if(all==0){
-              break;
+            }else{
+                
+                fd_set imgdb_clear_buffer_set;
+                FD_ZERO(&imgdb_clear_buffer_set);
+                FD_SET(sd, &imgdb_clear_buffer_set);
+
+                int bytes = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), 0, (struct sockaddr *) &client, &client_size);
+                net_assert((bytes<0),"recv error when all ==0");
+                recived_ih_seq = ntohl(ihdr_ack.ih_seqn);
+
+                while(1){
+                  fprintf(stderr, "recive ack num is 0x%x\n", recived_ih_seq);
+                  int err_r = select(sd+1, &imgdb_clear_buffer_set, 0, 0, &timeout);
+                  if(!err_r){
+                    fprintf(stderr, "finish waiting ack num is 0%x\n", recived_ih_seq);
+                    if(recived_ih_seq == ackseqn) return 0;
+                    else return (-1);
+                  }
+                  bytes = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), 0, (struct sockaddr *) &client, &client_size);
+                  recived_ih_seq = ntohl(ihdr_ack.ih_seqn);
+
+                }
             }
-        }
-        if((recived_right_ack_seq)&all) {return 0;}
     }
-    count++;
+
   }
   return (-1);
 }
@@ -322,6 +336,12 @@ sendimg(char *image, long imgsize)
   int err_SO_SNDBUF = setsockopt(sd, SOL_SOCKET, SO_SNDBUF, &mss_in , sizeof(int));
   if(err_SO_SNDBUF==-1) perror("setsockopt SO_SNDBUF failed");
 
+
+  int recive_buffer_sized;
+  socklen_t len_int = sizeof(int);
+
+  int error = getsockopt(sd, SOL_SOCKET, SO_RCVBUF, &recive_buffer_sized, &len_int);
+  fprintf(stderr, "the recive buffer is %d\n", recive_buffer_sized);
   /* Lab5 Task 1:
    *
    * Populate a struct msghdr with information of the destination
@@ -430,29 +450,35 @@ sendimg(char *image, long imgsize)
     timeout_1.tv_sec = NETIMG_SLEEP;
     timeout_1.tv_usec = NETIMG_USLEEP;
 
-    int err = select(sd+1, &imgdb_fd_set, 0, 0, &timeout_1);
-    if(!err){// start go back n
-      fprintf(stderr, " RTO current unacked is: 0x%x\n", snd_una);
-      snd_next = snd_una;
-    }else{
-      if(FD_ISSET(sd, &imgdb_fd_set)){
-          ihdr_t ihdr_ack;
-          socklen_t client_size = sizeof(client);
-          while(1){
-            int byte_r = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), MSG_DONTWAIT, (struct sockaddr *) &client, &client_size);
-            if(byte_r < 0){
-              fprintf(stderr, "break out from recvfrom\n");
-              break;
+    while(1){
+      int err = select(sd+1, &imgdb_fd_set, 0, 0, &timeout_1);
+      if(!err){// start go back n
+        fprintf(stderr, " RTO current unacked is: 0x%x\n", snd_una);
+        snd_next = snd_una;
+        break;
+      }else{
+        if(FD_ISSET(sd, &imgdb_fd_set)){
+            ihdr_t ihdr_ack;
+            socklen_t client_size = sizeof(client);
+            while(1){
+              int byte_r = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), MSG_DONTWAIT, (struct sockaddr *) &client, &client_size);
+              // if(byte_r<0){
+              //   int errs = errno;
+              //     if((errs == EAGAIN)||(errs == EWOULDBLOCK)){
+              //       fprintf(stderr, "break out from recvfrom\n");
+              //       break;
+              //     }
+              // }
+              if(ihdr_ack.ih_type == NETIMG_ACK){
+                unsigned int seq_short =  ntohl(ihdr_ack.ih_seqn);
+                snd_una = max(snd_una, seq_short);
+                fprintf(stderr, " server finish recive ack 0x%x current unacked is: 0x%x\n", seq_short, snd_una);
+              }else{
+                fprintf(stderr, "!!! recived type is not net ack");
+              }
             }
-            if(ihdr_ack.ih_type == NETIMG_ACK){
-              unsigned int seq_short =  ntohl(ihdr_ack.ih_seqn);
-              snd_una = max(snd_una, seq_short);
-              fprintf(stderr, " server finish recive ack 0x%x current unacked is: 0x%x\n", seq_short, snd_una);
-            }else{
-              fprintf(stderr, "!!! recived type is not net ack");
-            }
-          }
-          snd_next = snd_una;
+            snd_next = snd_una;
+        }
       }
     }
     //fprintf(stderr, "current snd_next is  %d, and imgsize is %li\n", snd_next, imgsize);
