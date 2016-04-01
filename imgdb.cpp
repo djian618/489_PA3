@@ -439,34 +439,33 @@ sendimg(char *image, long imgsize)
     timeout_1.tv_sec = NETIMG_SLEEP;
     timeout_1.tv_usec = NETIMG_USLEEP;
 
-    while(1){
       int err = select(sd+1, &imgdb_fd_set, 0, 0, &timeout_1);
-      if(!err){// start go back n
-        fprintf(stderr, " RTO current unacked is: 0x%x\n", snd_una);
-        snd_next = snd_una;
-        break;
-      }else{
-        if(FD_ISSET(sd, &imgdb_fd_set)){
-            ihdr_t ihdr_ack;
-            socklen_t client_size = sizeof(client);
-            while(1){
-              int byte_r = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), MSG_DONTWAIT, (struct sockaddr *) &client, &client_size);
-              if(byte_r<0) break;
-              if(ihdr_ack.ih_type == NETIMG_ACK){
-                unsigned int seq_short =  ntohl(ihdr_ack.ih_seqn);
-                snd_una = max(snd_una, seq_short);
-                fprintf(stderr, " server finish recive ack 0x%x current unacked is: 0x%x\n", seq_short, snd_una);
-              }else{
-                fprintf(stderr, "!!! recived type is not net ack");
-              }
-            }
-            snd_next = snd_una;
+      while(1){
+        if(!err){// start go back n
+          snd_next = snd_una;
+          fprintf(stderr, " RTO current unacked is: 0x%x\n", snd_una);
+          break;
         }
-      }
+        else{
+          if(FD_ISSET(sd, &imgdb_fd_set)){
+              ihdr_t ihdr_ack;
+              socklen_t client_size = sizeof(client);
+                int byte_r = recvfrom(sd, &ihdr_ack, sizeof(ihdr_t), MSG_DONTWAIT, (struct sockaddr *) &client, &client_size);
+                if(byte_r<0) break;
+                if(ihdr_ack.ih_type == NETIMG_ACK){
+                  unsigned int seq_short =  ntohl(ihdr_ack.ih_seqn);
+                  snd_una = max(snd_una, seq_short);
+                  fprintf(stderr, " server finish recive ack 0x%x current unacked is: 0x%x\n", seq_short, snd_una);
+                }else{
+                  fprintf(stderr, "!!! recived type is not net ack");
+                }
+              
+          }
+        }
     }
     //fprintf(stderr, "current snd_next is  %d, and imgsize is %li\n", snd_next, imgsize);
 
-  } while ((int)snd_next < imgsize); // PA3 Task 2.2: replace the '1' with your condition for detecting 
+  } while (((int)snd_next < imgsize)||(snd_una<imgsize)); // PA3 Task 2.2: replace the '1' with your condition for detecting 
   // that all segments sent have been acknowledged
     
   /* PA3 Task 2.2: after the image is sent send a NETIMG_FIN packet
