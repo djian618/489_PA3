@@ -20,7 +20,7 @@
 #ifndef __FEC_H__
 #define __FEC_H__
 
-extern void fec_init(unsigned char *fecdata, unsigned char *imgseg, int datasize, int segsize);
-extern void fec_accum(unsigned char *fecdata, unsigned char *imgseg, int datasize, int segsize);
+extern void fec_init( unsigned char *fecdata, unsigned char *imgseg, int datasize, int segsize);
+extern void fec_accum( unsigned char *fecdata, unsigned char *imgseg, int datasize, int segsize);
 
 #endif // __FEC_H__

@@ -212,6 +212,9 @@ recvimsg()
     send_back_ack.ih_type = NETIMG_ACK;
     send_back_ack.ih_size = htons(sizeof(ihdr_t));
     send_back_ack.ih_seqn = htonl(NETIMG_SYNSEQ);
+    //socklen_t client_size = sizeof(client);
+    bytes = send(sd, &send_back_ack, sizeof(send_back_ack), 0);
+    expected_seq_num = 0;
   }
 
   return((char) imsg.im_type);
@@ -265,7 +268,7 @@ recvimg(void)
   /* Lab5: YOUR CODE HERE */
     ssize_t head_judge = recv(sd, &hdr, sizeof(hdr), MSG_PEEK);
     if(head_judge == -1){
-      fprintf(stderr, "recv not recive anythign\n");
+      //fprintf(stderr, "recv not recive anythign\n");
       return;
     }
 
@@ -295,8 +298,14 @@ recvimg(void)
     message.msg_control=0;
     message.msg_controllen=0;
 
+    int h_seqn = ntohl(hdr.ih_seqn);
+    int h_size = ntohs(hdr.ih_size);
 
   /* PA3 Task 2.3: initialize your ACK packet */
+    ihdr_t ack_packet;
+    ack_packet.ih_vers = NETIMG_VERS;
+    ack_packet.ih_type = NETIMG_ACK;
+    ack_packet.ih_size = htons(sizeof(ack_packet));
 
   if (hdr.ih_type == NETIMG_DATA) {
     /* 
@@ -323,7 +332,7 @@ recvimg(void)
       return;
     }
     fprintf(stderr, "netimg::recvimg: received offset 0x%x, %d bytes, waiting for 0x%x\n", 
-            hdr.ih_seqn, hdr.ih_size, next_seqn);
+            h_seqn, h_size, next_seqn);
             
     /* PA3 Task 2.3: If the incoming data packet carries the expected
      * sequence number, update our expected sequence number.  In all
@@ -332,12 +341,18 @@ recvimg(void)
      * our current expectation is.
      */
     /* PA3: YOUR CODE HERE */
-
+     if(expected_seq_num == h_seqn){
+        expected_seq_num = expected_seq_num + h_size;
+        ack_packet.ih_seqn = htonl(expected_seq_num);
+        //bytes = send(sd, &ack_packet, sizeof(ack_packet), 0);
+        
+     }
   } else {  // NETIMG_FIN pkt
-
+      head_judge = recv(sd, &hdr, sizeof(hdr), 0);
     /* PA3 Task 2.3: else it's a NETIMG_FIN packet, prepare to send
        back an ACK with NETIMG_FINSEQ as the sequence number */
     /* PA3 YOUR CODE HERE */ 
+      ack_packet.ih_seqn = htonl(NETIMG_FINSEQ);
   }
   
   /* PA3 Task 2.3:
@@ -346,7 +361,17 @@ recvimg(void)
    * imgdb.cpp).
    */ 
   /* PA3: YOUR CODE HERE */
-  
+    if(((float) random())/INT_MAX < pdrop) {
+        fprintf(stderr, "netimg::send ack: DROPPED with next expected 0x%x\n",
+                  expected_seq_num);
+    }else{
+
+        int bytes = send(sd, &ack_packet, sizeof(ack_packet), 0);
+        net_assert((bytes<0), "ack sent errror");
+        fprintf(stderr, "netimg::send ack: 0x%x\n",
+                  ack_packet.ih_seqn);
+    } 
+
   /* give the updated image to OpenGL for texturing */
   switch(imsg.im_format) {
   case NETIMG_RGBA:

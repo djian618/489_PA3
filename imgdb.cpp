@@ -51,6 +51,8 @@ using namespace std;
 #include <time.h>
 #include <algorithm>    // std::max
 #include <errno.h>
+#include "fec.h"
+
 /*
  * args: parses command line args.
  *
@@ -268,6 +270,7 @@ sendpkt(char *pkt, int size, unsigned int ackseqn, int all)
     }
 
   }
+  fprintf(stderr, "sendpkt returned\n");
   return (-1);
 }
 
@@ -318,6 +321,13 @@ sendimg(char *image, long imgsize)
   ip = image; /* ip points to the start of image byte buffer */
   datasize = mss - sizeof(ihdr_t) - NETIMG_UDPIP;
   
+  //researve fec data
+  unsigned char* fecdata = new  unsigned char[datasize];
+  int packet_count = 0;
+  unsigned int current_start_window  = 0;
+
+
+
   /* Lab5 Task 1:
    * make sure that the send buffer is of size at least mss.
    */
@@ -386,6 +396,21 @@ sendimg(char *image, long imgsize)
       left = imgsize - snd_next;
       segsize = datasize > left ? left : datasize;
       if(left == 0) break;
+       /* Lab6 Task 1:
+       *
+       * If this is your first segment in an FEC window, use it to
+       * initialize your FEC data.  Subsequent segments within the FEC
+       * window should be XOR-ed with the content of your FEC data.
+       */      
+      if(packet_count == 0){
+        fec_init(fecdata, reinterpret_cast<unsigned char*> (ip + snd_next), datasize, segsize);
+        current_start_window = snd_next;
+      }else{
+        fec_accum(fecdata,reinterpret_cast<unsigned char*> (ip + snd_next), datasize, segsize);
+      }
+      
+
+
       /* probabilistically drop a segment */
       if (((float) random())/INT_MAX < pdrop) {
         fprintf(stderr, "imgdb::sendimg: DROPPED offset 0x%x, %d bytes\n",
@@ -401,8 +426,10 @@ sendimg(char *image, long imgsize)
          * the segment off by calling sendmsg().
          */
         /* Lab5: YOUR CODE HERE */
+        
         iov[1].iov_base = ip + snd_next;
         iov[1].iov_len = segsize;
+        io_header.ih_type = NETIMG_DATA;
         io_header.ih_size = htons(segsize); 
         io_header.ih_seqn = htonl(snd_next);
 
@@ -422,11 +449,56 @@ sendimg(char *image, long imgsize)
       /* PA3: YOUR CODE HERE */
       snd_next += segsize;
       useable_window = rwnd_short - (snd_next - snd_una);
+    /* Lab6 Task 1
+     *
+     * If one fwnd-full of FEC has been accumulated or the last segment
+     * of the image has been sent, send your FEC data.
+     *
+     * Point the second entry of the iovec to your FEC data.  The
+     * sequence number of the FEC packet MUST be the sequence number
+     * of the first image data byte beyond the FEC window.  The size
+     * of an FEC packet MUST be "datasize".  Don't forget to use
+     * network byte order.  Send the FEC packet off by calling
+     * sendmsg().
+     *
+     * After you've sent off your FEC packet, reset your FEC-window
+     * related variables to prepare for the processing of the next
+     * window.  If you re-use the same header for sending image data
+     * and FEC data, make sure you reset the ih_type field of the
+     * header also.
+     *
+     * You should also probabilistically drop your FEC data.  
+    */
+    /* Lab6 Task 1: YOUR CODE HERE */
+      if(( packet_count == fwnd - 1 )||(imgsize - snd_next<=0)){
+        if (((float) random())/INT_MAX < pdrop) {
+          fprintf(stderr, "imgdb::sendimg: DROPPED FEC 0x%x, %d bytes\n",
+                  current_start_window, datasize);
+        } 
+        else{         
+          iov[1].iov_base = fecdata;
+          iov[1].iov_len = datasize;
+          io_header.ih_type = NETIMG_FEC;
+          io_header.ih_size = htons(datasize); 
+          io_header.ih_seqn = htonl(current_start_window);
+          int fk = sendmsg(sd, &mh, 0);  
+  
+          fprintf(stderr, "imgdb::sendimg: sent FEC 0x%x, %d bytes\n",
+                  current_start_window, datasize);
+          if (fk == -1) {
+            perror("sendmsg fec failed");
+            return;
+          }
+          memset(fecdata, 0, datasize);
+        }  
+      }
+        packet_count = (packet_count+1) % fwnd;
     }
     /* PA3 Task 2.2: If an ACK arrived, grab it off the network and
      * slide our window forward when possible. Continue to do so
      * opportunistically for all the ACKs that have arrived.  Remember
      * that we're using cumulative ACK.
+
      *
      * If no ACK returned up to the timeout time, trigger Go-Back-N
      * and re-send all segments starting from the last unACKed
@@ -443,6 +515,8 @@ sendimg(char *image, long imgsize)
       while(1){
         if(!err){// start go back n
           snd_next = snd_una;
+          //reset the fec datapatch
+          packet_count = 0;
           fprintf(stderr, " RTO current unacked is: 0x%x\n", snd_una);
           break;
         }
@@ -481,7 +555,7 @@ sendimg(char *image, long imgsize)
   if (!sendpkt((char *) &hdr, sizeof(ihdr_t), NETIMG_FINSEQ, 1)) {
     fprintf(stderr, "imgdb::sendimg: FIN acked.\n");
   }
-
+  fprintf(stderr, "finally returned gugugugugu\n");
   return;
 }
 

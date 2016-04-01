@@ -128,6 +128,7 @@ class netimg {
 public:
   int sd;                   // socket descriptor
   imsg_t imsg;
+  int expected_seq_num ;
 
   //netimg() { next_seqn = 0; in_gbn = 0; fwnd_start = 0; fwnd_count = 0;}   // default constructor
   int args(int argc, char *argv[], char **sname, unsigned short *port, char **imgname);
