@@ -179,7 +179,7 @@ reconstruct_image(unsigned char* fec_data){
         }
         unsigned int size_to_be_copy = next_seqn+datasize>img_size? (img_size-next_seqn) : datasize;
         memcpy(image+next_seqn,fec_data, size_to_be_copy);
-
+        delete[] fec_data; 
 }
 
 
@@ -445,10 +445,10 @@ recvimg(void)
 
 
   else if(hdr.ih_type == NETIMG_FEC){
-    fprintf(stderr, "recieve FEC packet at offset 0x%x the packets_count is %d\n", h_seqn, packets_count);
+    fprintf(stderr, "!!!!!!!!!!!!  recieve FEC packet at offset 0x%x the packets_count is %d\n", h_seqn, packets_count);
     //recive netimg_fec message
     unsigned char* fec_data = new unsigned char[datasize];; 
-
+    memset(fec_data,0,datasize);
     iov[1].iov_base = fec_data;
     iov[1].iov_len = datasize;
     ssize_t fec_count = recvmsg(sd, &message, 0);
@@ -477,17 +477,17 @@ recvimg(void)
       //   window_end = img_size;
       // }
       int packets_left = ceil(img_size-window_start)/datasize;
-      fwnd = packets_left>fwnd? fwnd:packets_left;
+      unsigned int adjust_fwnd = packets_left>fwnd? fwnd:packets_left;
        unsigned int window_end = window_start + (fwnd*datasize)>=img_size? img_size : window_start + (fwnd*datasize);
 
 
       if(h_seqn>window_start){
-        fprintf(stderr, "recived out synched fec go to go back n\n");
+        fprintf(stderr, "OUTSYNECHEED fec go to go back n\n");
         go_back_n_mode = true;
 
         packets_count = 0;
       }
-      else if((packets_count == fwnd -1)){
+      else if((packets_count == adjust_fwnd -1)){
         /*If the client has lost at most one segment within the current FEC window, 
         you can re-use your Lab 6 code to reconstruct the lost segment, put it in its 
         appointed place in the image buffer, and send back an ACK acknowledging the full FEC window. 
@@ -510,6 +510,8 @@ recvimg(void)
             send_ack(&ack_packet);
           }
         }else if(h_seqn == window_start){
+          
+          fprintf(stderr, "reconstruct withuot adjust window\n");
           reconstruct_image(fec_data);
           window_start = window_start + (fwnd*datasize);
           packets_count = 0;
@@ -531,28 +533,15 @@ recvimg(void)
           // window to start at the next expected sequence number (netimg::next_seqn) and reset 
           // any other FEC-related variables. It takes about 15 lines of code to handle FEC packet,
           // not counting code implemented in Labs 5 and 6 and Task 2 above.
-          if(packets_count>fwnd){
-                  fprintf(stderr, "fuck packets_count >>> fwnd which is %d\n", packets_count);
+          if(packets_count>adjust_fwnd){
+                  fprintf(stderr, "fuck packets_count >>> fwnd which is %d and adjust_fwnd is%d\n", packets_count,adjust_fwnd);
                 }
           go_back_n_mode = true;
           window_start = next_seqn;
           packets_count =0;
           fprintf(stderr, "enter go back n mode at 0x%x\n", next_seqn);
       }
-
-
-
-
   }
-
-
-
-
-
-
-
-
-
   }
   
 
