@@ -128,14 +128,19 @@ class netimg {
 public:
   int sd;                   // socket descriptor
   imsg_t imsg;
-  int expected_seq_num ;
-
-  //netimg() { next_seqn = 0; in_gbn = 0; fwnd_start = 0; fwnd_count = 0;}   // default constructor
+  unsigned int window_start;
+  unsigned int datasize;
+  int packets_count;
+  bool go_back_n_mode;
+  netimg() { next_seqn = 0; window_start = 0;packets_count = 0;go_back_n_mode=false;}   // default constructor
   int args(int argc, char *argv[], char **sname, unsigned short *port, char **imgname);
   int rcvbuf() { return(rwnd*mss); }
   int sendqry(char *imgname);
   char recvimsg();
   void recvimg();
+  void reconstruct_image(unsigned char* fec_data);
+  void send_ack(ihdr_t* ack);
+
 };
 
 extern void netimglut_init(int *argc, char *argv[], void (*idlefunc)());
