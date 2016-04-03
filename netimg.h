@@ -132,7 +132,8 @@ public:
   unsigned int datasize;
   int packets_count;
   bool go_back_n_mode;
-  netimg() { next_seqn = 0; window_start = 0;packets_count = 0;go_back_n_mode=false;}   // default constructor
+  unsigned int next_next_seqn;
+  netimg() {next_seqn = 0; window_start = 0; packets_count = 0; go_back_n_mode=false;}   // default constructor
   int args(int argc, char *argv[], char **sname, unsigned short *port, char **imgname);
   int rcvbuf() { return(rwnd*mss); }
   int sendqry(char *imgname);

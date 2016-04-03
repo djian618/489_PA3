@@ -168,6 +168,7 @@ void netimg::
 reconstruct_image(unsigned char* fec_data){
         unsigned int next_seqn_fec = window_start;
         fprintf(stderr, "reconstruct IMAGE at offst 0x%x \n", next_seqn);
+        net_assert((window_start>next_seqn),"wronnggg");
          unsigned int window_end = window_start + (fwnd*datasize)>=img_size? img_size : window_start + (fwnd*datasize);
 
         while(next_seqn_fec<window_end){
@@ -378,19 +379,17 @@ recvimg(void)
       close(sd);
       return;
     }
-    fprintf(stderr, "netimg::recvimg: received offset 0x%x, %d bytes, waiting for 0x%x\n", 
-            h_seqn, h_size, next_seqn);
             
     
     if(go_back_n_mode){
       if(next_seqn == h_seqn){
         //jump out of the go back n mode
+        //window_start = next_seqn;
+
         next_seqn = next_seqn+h_size;
         packets_count = 1;
         go_back_n_mode=false;
-        window_start = next_seqn;
         fprintf(stderr, "jumped out of goback n at next_seqn 0x%x with size %d\n",next_seqn,h_size);        
-     
       }
     }else{  
         //first of all check if the arrived packet is out of range 
@@ -400,7 +399,10 @@ recvimg(void)
               we can simply advance the FEC window to the next window 
               and resume transmission*/
               if(next_seqn == h_seqn){
-                window_start = window_start + (fwnd*datasize);
+                //net_assert((window_start<next_seqn),"window > next_seqn");
+                if(window_start<next_seqn){
+                  window_start = window_start + (fwnd*datasize);
+                }
                 packets_count = 1;
                 next_seqn = next_seqn + h_size;
                 fprintf(stderr, "do not recive a fec but could move on next_seqn 0x%x bytes%d \n", next_seqn, h_size);
@@ -411,6 +413,8 @@ recvimg(void)
                 retransmit the lost segment.*/
                 go_back_n_mode = true;
                 packets_count = 0;
+                window_start = next_seqn;
+                
                 fprintf(stderr, "do not recive a fec jump to go back n mode\n");
               }
             }
@@ -422,11 +426,28 @@ recvimg(void)
               if(next_seqn == h_seqn){
                 next_seqn = next_seqn + h_size;
                 fprintf(stderr, "move on next_seqn 0x%x bytes%d \n", next_seqn, h_size);
+                packets_count = packets_count + 1;
+              }else if((next_seqn+h_size == h_seqn)&(next_next_seqn<h_seqn)){
+                fprintf(stderr, "next_next seq matched on 0x%x bytes%d \n", next_next_seqn, h_size);
+                next_next_seqn = h_seqn + h_size;
+                packets_count = packets_count + 1;
+              }else if ((next_next_seqn==h_seqn)&(next_next_seqn>next_seqn)){
+                net_assert((next_next_seqn<next_seqn),"booom");
+                next_next_seqn = next_next_seqn + h_size;
+                fprintf(stderr, "next_next seq moved on  0x%x bytes%d \n", next_next_seqn, h_size);
+                packets_count = packets_count + 1;
               }
-              packets_count = packets_count + 1;
+                
+                  // fprintf(stderr, "recived next_seqn 0x%x bytes%d \n", next_seqn, h_size);
+                  // packets_count = packets_count + 1;
+              if(h_seqn<window_start){
+                fprintf(stderr, "HI!!!!!!!!!!!!!!!!!!!!!!!HSEQU < WINDOW START\n");
+              }
           }
       }
       ack_packet.ih_seqn = htonl(next_seqn);
+      fprintf(stderr, "netimg::recvimg: received offset 0x%x, %d bytes, waiting for 0x%x\n", 
+            h_seqn, h_size, next_seqn);
 
       send_ack(&ack_packet);
 
@@ -445,7 +466,9 @@ recvimg(void)
 
 
   else if(hdr.ih_type == NETIMG_FEC){
-    fprintf(stderr, "!!!!!!!!!!!!  recieve FEC packet at offset 0x%x the packets_count is %d\n", h_seqn, packets_count);
+    int packets_left = ceil(img_size-window_start)/datasize;
+    unsigned int adjust_fwnd = packets_left>fwnd? fwnd:packets_left;
+    fprintf(stderr, "!!!!!!!!!!!!  recieve FEC packet at offset 0x%x the packets_count is %d and adjust_fwnd is %d\n", h_seqn, packets_count, adjust_fwnd);
     //recive netimg_fec message
     unsigned char* fec_data = new unsigned char[datasize];; 
     memset(fec_data,0,datasize);
@@ -476,8 +499,6 @@ recvimg(void)
       //   packet_left = packets_count - (fwnd - last_packets_size);
       //   window_end = img_size;
       // }
-      int packets_left = ceil(img_size-window_start)/datasize;
-      unsigned int adjust_fwnd = packets_left>fwnd? fwnd:packets_left;
        unsigned int window_end = window_start + (fwnd*datasize)>=img_size? img_size : window_start + (fwnd*datasize);
 
 
@@ -504,10 +525,13 @@ recvimg(void)
             reconstruct_image(fec_data);
             window_start = window_start + (fwnd*datasize);
            
+
             next_seqn = window_start;
             ack_packet.ih_seqn = htonl(next_seqn);
             packets_count = 0;
             send_ack(&ack_packet);
+          }else{
+            fprintf(stderr, "does not do anything\n");
           }
         }else if(h_seqn == window_start){
           
@@ -515,7 +539,8 @@ recvimg(void)
           reconstruct_image(fec_data);
           window_start = window_start + (fwnd*datasize);
           packets_count = 0;
-         
+                   
+
           next_seqn = window_start;
           ack_packet.ih_seqn = htonl(next_seqn);
           send_ack(&ack_packet);
@@ -524,6 +549,8 @@ recvimg(void)
           fprintf(stderr, "recive all packets ");
           window_start = window_start + (fwnd*datasize);
           packets_count = 0;
+          next_seqn = window_start;
+
       } else{
 
           // If more than one segments were lost, in Lab 6 we couldn't
@@ -539,6 +566,7 @@ recvimg(void)
           go_back_n_mode = true;
           window_start = next_seqn;
           packets_count =0;
+
           fprintf(stderr, "enter go back n mode at 0x%x\n", next_seqn);
       }
   }

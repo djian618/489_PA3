@@ -1,4 +1,4 @@
-CC = g++
+CC = g++ 
 CFLAGS = -g -Wall -Wno-deprecated $(DASGN)
 MKDEP=makedepend -Y
 OS := $(shell uname)

@@ -470,10 +470,14 @@ sendimg(char *image, long imgsize)
      * You should also probabilistically drop your FEC data.  
     */
     /* Lab6 Task 1: YOUR CODE HERE */
-      if(( packet_count == fwnd - 1 )||(imgsize - snd_next<=0)){
+        packet_count = (packet_count+1);
+
+      if(( packet_count == fwnd)||(imgsize - snd_next<=0)){
         if (((float) random())/INT_MAX < pdrop) {
           fprintf(stderr, "imgdb::sendimg: DROPPED FEC 0x%x, %d bytes\n",
                   current_start_window, datasize);
+            packet_count = 0;
+
         } 
         else{         
           iov[1].iov_base = fecdata;
@@ -490,9 +494,9 @@ sendimg(char *image, long imgsize)
             return;
           }
           memset(fecdata, 0, datasize);
+          packet_count = 0;
         }  
       }
-        packet_count = (packet_count+1) % fwnd;
     }
     /* PA3 Task 2.2: If an ACK arrived, grab it off the network and
      * slide our window forward when possible. Continue to do so
